@@ -1,0 +1,14 @@
+[package]
+name = "tokio-scgi"
+version = "0.1.0"
+authors = ["Nick Parker <nick@nickbp.com>"]
+license = "GPL-3.0-or-later"
+edition = "2018"
+
+[dependencies]
+tokio = "0.1.21"
+tokio-codec = "0.1.1"
+bytes = "0.4.12"
+
+[dev-dependencies]
+proptest = "0.9.4"
