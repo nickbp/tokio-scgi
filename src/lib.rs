@@ -324,12 +324,12 @@ impl Encoder for SCGICodec {
                 buf.put(b',');
             }
             SCGIRequest::BodyFragment(fragment) => {
-                if self.encoder_state != CodecState::Content {
+                /*if self.encoder_state != CodecState::Content {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
                         "Must invoke encoder with Headers before Content",
                     ));
-                }
+                }*/
 
                 // Forward content as-is
                 buf.reserve(fragment.len());
