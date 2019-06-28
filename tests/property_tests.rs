@@ -41,7 +41,10 @@ fn decode_encode_protocol_sample() {
         .encode(ClientRequest::Headers(expected_headers), &mut buf)
         .unwrap();
     encoder
-        .encode(ClientRequest::BodyFragment(expected_body.to_vec()), &mut buf)
+        .encode(
+            ClientRequest::BodyFragment(expected_body.to_vec()),
+            &mut buf,
+        )
         .unwrap();
     assert_eq!(buf.to_vec(), protocol_sample.to_vec());
 }
@@ -82,9 +85,13 @@ fn check_content(headers: &Vec<(String, String)>, content: &String) {
     let mut buf = BytesMut::new();
 
     let mut encoder = ClientCodec::new();
-    encoder.encode(ClientRequest::Headers(headers.clone()), &mut buf).unwrap();
+    encoder
+        .encode(ClientRequest::Headers(headers.clone()), &mut buf)
+        .unwrap();
     let content_req = Vec::from(content.as_bytes());
-    encoder.encode(ClientRequest::BodyFragment(content_req.clone()), &mut buf).unwrap();
+    encoder
+        .encode(ClientRequest::BodyFragment(content_req.clone()), &mut buf)
+        .unwrap();
 
     let encoded_data = buf.clone();
 
@@ -98,7 +105,8 @@ fn check_content(headers: &Vec<(String, String)>, content: &String) {
     } else {
         assert!(false, "expected headers");
     }
-    if let ServerRequest::BodyFragment(content_decoded) = decoder.decode(&mut buf).unwrap().unwrap() {
+    if let ServerRequest::BodyFragment(content_decoded) = decoder.decode(&mut buf).unwrap().unwrap()
+    {
         assert_eq!(
             content_req, content_decoded,
             "headers: {:?} content: {:?} encoded: {:?}",

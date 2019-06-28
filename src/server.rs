@@ -106,7 +106,7 @@ impl SCGICodec {
                 }
                 CodecState::HeaderKey | CodecState::HeaderValue => {
                     if let Some(end_offset) =
-                    buf[self.next_search_index..].iter().position(|b| *b == NUL)
+                        buf[self.next_search_index..].iter().position(|b| *b == NUL)
                     {
                         // Consume string and trailing NUL from buffer:
                         let bytes_with_nul = buf.split_to(self.next_search_index + end_offset + 1);
@@ -146,7 +146,7 @@ impl SCGICodec {
                                     "Header key or value size exceeds maximum {} bytes",
                                     MAX_HEADER_STRING_BYTES
                                 )
-                                    .as_str(),
+                                .as_str(),
                             ));
                         }
                         return Ok(None);

@@ -14,12 +14,12 @@ pub enum SCGIRequest {
 
 /// A `Codec` implementation that creates and parses SCGI requests.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SCGICodec { }
+pub struct SCGICodec {}
 
 impl SCGICodec {
     /// Returns a `SCGIClientCodec` for creating SCGI-format requests.
     pub fn new() -> SCGICodec {
-        SCGICodec { }
+        SCGICodec {}
     }
 }
 
