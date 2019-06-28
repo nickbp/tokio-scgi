@@ -50,14 +50,7 @@ fn main() -> Result<(), Error> {
             .incoming()
             .map_err(|e| println!("Socket failed: {:?}", e))
             .for_each(|socket| {
-                let (tx_scgi, rx_scgi) = Framed::new(socket, SCGICodec::new()).split();
-                let session = tx_scgi.send_all(rx_scgi.and_then(respond)).then(|res| {
-                    if let Err(e) = res {
-                        println!("failed to process connection; error = {:?}", e);
-                    }
-                    Ok(())
-                });
-                tokio::spawn(session)
+                serve(socket)
             })
         );
         Ok(())
@@ -70,25 +63,25 @@ fn main() -> Result<(), Error> {
             .incoming()
             .map_err(|e| println!("Socket failed: {:?}", e))
             .for_each(|socket| {
-                let (tx_scgi, rx_scgi) = Framed::new(socket, SCGICodec::new()).split();
-                let session = tx_scgi.send_all(rx_scgi.and_then(respond)).then(|res| {
-                    if let Err(e) = res {
-                        println!("failed to process connection; error = {:?}", e);
-                    }
-                    Ok(())
-                });
-                tokio::spawn(session)
+                serve(socket)
             })
         );
         Ok(())
     }
 }
 
-/// "Server logic" is implemented in this function.
-///
-/// This function is a map from and HTTP request to a future of a response and
-/// represents the various handling a server might do. Currently the contents
-/// here are pretty uninteresting.
+fn serve<T: AsyncRead + AsyncWrite + 'static>(socket: T) -> tokio::executor::Spawn
+    where T: std::marker::Send {
+    let (tx_scgi, rx_scgi) = Framed::new(socket, SCGICodec::new()).split();
+    let session = tx_scgi.send_all(rx_scgi.and_then(respond)).then(|res| {
+        if let Err(e) = res {
+            println!("failed to process connection; error = {:?}", e);
+        }
+        Ok(())
+    });
+    tokio::spawn(session)
+}
+
 fn respond(req: SCGIRequest) -> Box<dyn Future<Item = Vec<u8>, Error = Error> + Send> {
     let f = future::lazy(move || {
         let content = format!(
