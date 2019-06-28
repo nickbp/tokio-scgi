@@ -10,7 +10,7 @@ use tokio::prelude::*;
 use tokio_codec::Framed;
 use std::net::SocketAddr;
 use std::str::FromStr;
-use tokio_scgi::{SCGICodec, SCGIRequest};
+use tokio_scgi::server::{SCGICodec, SCGIRequest};
 
 fn unix_init(path_str: String) -> Result<UnixListener, Error> {
     // Try to delete the socket file. Avoids AddrInUse errors. No-op if already missing.
@@ -89,7 +89,7 @@ fn main() -> Result<(), Error> {
 /// This function is a map from and HTTP request to a future of a response and
 /// represents the various handling a server might do. Currently the contents
 /// here are pretty uninteresting.
-fn respond(req: SCGIRequest) -> Box<dyn Future<Item = SCGIRequest, Error = Error> + Send> {
+fn respond(req: SCGIRequest) -> Box<dyn Future<Item = Vec<u8>, Error = Error> + Send> {
     let f = future::lazy(move || {
         let content = format!(
             "<html><head><title>scgi-demo</title></head><body>\
@@ -97,10 +97,10 @@ fn respond(req: SCGIRequest) -> Box<dyn Future<Item = SCGIRequest, Error = Error
              <p>{:?}</p>
              </body></html>\n",
             req);
-        Ok(SCGIRequest::BodyFragment(format!(
+        Ok(format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\n\r\n{}",
             content.len(), content
-        ).into_bytes()))
+        ).into_bytes())
     });
 
     Box::new(f)

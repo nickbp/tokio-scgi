@@ -4,7 +4,8 @@ use bytes::{BufMut, BytesMut};
 use proptest::prelude::*;
 use tokio_codec::{Decoder, Encoder};
 
-use tokio_scgi::{SCGICodec, SCGIRequest};
+use tokio_scgi::client::{SCGICodec as ClientCodec, SCGIRequest as ClientRequest};
+use tokio_scgi::server::{SCGICodec as ServerCodec, SCGIRequest as ServerRequest};
 
 #[test]
 fn decode_encode_protocol_sample() {
@@ -14,7 +15,7 @@ fn decode_encode_protocol_sample() {
     let mut buf = BytesMut::with_capacity(protocol_sample.len());
     buf.put(protocol_sample.to_vec());
 
-    let mut codec = SCGICodec::new();
+    let mut decoder = ServerCodec::new();
 
     // First call should produce headers
     let mut expected_headers = Vec::new();
@@ -23,23 +24,24 @@ fn decode_encode_protocol_sample() {
     expected_headers.push(("REQUEST_METHOD".to_string(), "POST".to_string()));
     expected_headers.push(("REQUEST_URI".to_string(), "/deepthought".to_string()));
     assert_eq!(
-        SCGIRequest::Headers(expected_headers.clone()),
-        codec.decode(&mut buf).unwrap().unwrap()
+        ServerRequest::Headers(expected_headers.clone()),
+        decoder.decode(&mut buf).unwrap().unwrap()
     );
 
     // Second call should produce body
     let expected_body = b"What is the answer to life?";
     assert_eq!(expected_body.len(), buf.len());
     assert_eq!(
-        SCGIRequest::BodyFragment(expected_body.to_vec()),
-        codec.decode(&mut buf).unwrap().unwrap()
+        ServerRequest::BodyFragment(expected_body.to_vec()),
+        decoder.decode(&mut buf).unwrap().unwrap()
     );
 
-    codec
-        .encode(SCGIRequest::Headers(expected_headers), &mut buf)
+    let mut encoder = ClientCodec::new();
+    encoder
+        .encode(ClientRequest::Headers(expected_headers), &mut buf)
         .unwrap();
-    codec
-        .encode(SCGIRequest::BodyFragment(expected_body.to_vec()), &mut buf)
+    encoder
+        .encode(ClientRequest::BodyFragment(expected_body.to_vec()), &mut buf)
         .unwrap();
     assert_eq!(buf.to_vec(), protocol_sample.to_vec());
 }
@@ -53,8 +55,7 @@ proptest! {
     #[test]
     fn decode_doesnt_crash(s in ".*") {
         let mut buf = BytesMut::with_capacity(s.len());
-        let mut codec = SCGICodec::new();
-        codec.decode(&mut buf)?;
+        ServerCodec::new().decode(&mut buf)?;
     }
 
     #[test]
@@ -78,28 +79,34 @@ proptest! {
 }
 
 fn check_content(headers: &Vec<(String, String)>, content: &String) {
-    let mut codec = SCGICodec::new();
     let mut buf = BytesMut::new();
 
-    let headers_req = SCGIRequest::Headers(headers.clone());
-    codec.encode(headers_req.clone(), &mut buf).unwrap();
-    let content_req = SCGIRequest::BodyFragment(Vec::from(content.as_bytes()));
-    codec.encode(content_req.clone(), &mut buf).unwrap();
+    let mut encoder = ClientCodec::new();
+    encoder.encode(ClientRequest::Headers(headers.clone()), &mut buf).unwrap();
+    let content_req = Vec::from(content.as_bytes());
+    encoder.encode(ClientRequest::BodyFragment(content_req.clone()), &mut buf).unwrap();
 
     let encoded_data = buf.clone();
 
-    let headers_decoded = codec.decode(&mut buf).unwrap().unwrap();
-    assert_eq!(
-        headers_req, headers_decoded,
-        "headers: {:?} content: {:?} encoded: {:?}",
-        headers, content, encoded_data
-    );
-    let content_decoded = codec.decode(&mut buf).unwrap().unwrap();
-    assert_eq!(
-        content_req, content_decoded,
-        "headers: {:?} content: {:?} encoded: {:?}",
-        headers, content, encoded_data
-    );
+    let mut decoder = ServerCodec::new();
+    if let ServerRequest::Headers(headers_decoded) = decoder.decode(&mut buf).unwrap().unwrap() {
+        assert_eq!(
+            headers, &headers_decoded,
+            "headers: {:?} content: {:?} encoded: {:?}",
+            headers, content, encoded_data
+        );
+    } else {
+        assert!(false, "expected headers");
+    }
+    if let ServerRequest::BodyFragment(content_decoded) = decoder.decode(&mut buf).unwrap().unwrap() {
+        assert_eq!(
+            content_req, content_decoded,
+            "headers: {:?} content: {:?} encoded: {:?}",
+            headers, content, encoded_data
+        );
+    } else {
+        assert!(false, "expected content");
+    }
 
     check_content_slow(encoded_data, headers, content);
 }
@@ -110,17 +117,17 @@ fn check_content_slow(
     expect_headers: &Vec<(String, String)>,
     expect_content: &String,
 ) {
-    let mut codec = SCGICodec::new();
     let mut buf = BytesMut::with_capacity(data.len());
 
     let mut got_headers: Vec<(String, String)> = Vec::new();
     let mut got_content = Vec::new();
 
     // Add each char individually, trying to decode each time:
+    let mut decoder = ServerCodec::new();
     for chr in &data {
         buf.put(chr);
-        match codec.decode(&mut buf) {
-            Ok(Some(SCGIRequest::Headers(headers))) => {
+        match decoder.decode(&mut buf) {
+            Ok(Some(ServerRequest::Headers(headers))) => {
                 assert!(
                     got_headers.is_empty(),
                     "Got >1 Headers (added {} from {:?}): prev={:?} this={:?}",
@@ -131,7 +138,7 @@ fn check_content_slow(
                 );
                 got_headers.append(&mut headers.clone());
             }
-            Ok(Some(SCGIRequest::BodyFragment(fragment))) => {
+            Ok(Some(ServerRequest::BodyFragment(fragment))) => {
                 got_content.append(&mut fragment.clone());
             }
             Ok(None) => {}
