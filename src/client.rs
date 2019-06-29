@@ -8,7 +8,11 @@ const NUL: u8 = b'\0';
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SCGIRequest {
-    Headers(Vec<(String, String)>),
+    /// The first Vec contains the headers. The second Vec optionally contains raw byte data to
+    /// include in the request body.
+    Request(Vec<(String, String)>, Vec<u8>),
+
+    /// Additional body fragment(s) to be used for streaming request data.
     BodyFragment(Vec<u8>),
 }
 
@@ -43,7 +47,7 @@ impl Encoder for SCGICodec {
 
     fn encode(&mut self, data: SCGIRequest, buf: &mut BytesMut) -> Result<(), io::Error> {
         match data {
-            SCGIRequest::Headers(env_map) => {
+            SCGIRequest::Request(env_map, body) => {
                 // Calculate size needed for header netstring
                 let mut sum_header_size: usize = 0;
                 for (k, v) in &env_map {
@@ -67,7 +71,7 @@ impl Encoder for SCGICodec {
                 let netstring_size_str = sum_header_size.to_string();
                 // Include ':' and ',' in buffer, not included in netstring size:
                 buf.reserve(
-                    netstring_size_str.len() + 1/*:*/ + sum_header_size + 1, /*,*/
+                    netstring_size_str.len() + 1/*:*/ + sum_header_size + 1/*,*/ + body.len(),
                 );
 
                 // Insert the header content into the reserved buffer.
@@ -80,6 +84,9 @@ impl Encoder for SCGICodec {
                     buf.put(NUL);
                 }
                 buf.put(b',');
+
+                // Add any body content after the header
+                buf.put(body);
             }
             SCGIRequest::BodyFragment(fragment) => {
                 // Forward content as-is

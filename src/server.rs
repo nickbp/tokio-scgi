@@ -14,7 +14,11 @@ const MAX_HEADER_BYTES: usize = 256 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SCGIRequest {
-    Headers(Vec<(String, String)>),
+    /// The first Vec contains the headers. The second Vec optionally contains raw byte data from
+    /// the request body.
+    Request(Vec<(String, String)>, Vec<u8>),
+
+    /// Additional body fragment(s) to be used for streaming request data.
     BodyFragment(Vec<u8>),
 }
 
@@ -65,6 +69,10 @@ pub struct SCGICodec {
     next_search_index: usize,
 }
 
+macro_rules! io_err {
+    ($($arg:tt)*) => (Err(io::Error::new(io::ErrorKind::InvalidData, format!($($arg)+))))
+}
+
 impl SCGICodec {
     /// Returns a `SCGIServerCodec` for accepting and parsing SCGI-format requests.
     pub fn new() -> SCGICodec {
@@ -92,16 +100,15 @@ impl SCGICodec {
                         buf.split_to(1);
                         self.next_search_index = 0;
                         self.decoder_state = CodecState::Content;
-                        return Ok(Some(SCGIRequest::Headers(mem::replace(
-                            &mut self.headers,
-                            Vec::new(),
-                        ))));
+                        return Ok(Some(SCGIRequest::Request(
+                            mem::replace(&mut self.headers, Vec::new()),
+                            // Include any remaining body content in this output as well.
+                            // In most cases this should effectively conclude the request.
+                            buf.split_to(buf.len()).to_vec(),
+                        )));
                     } else {
                         // Should always have the comma, missing it implies corrupt input.
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "Missing ',' separating headers from content",
-                        ));
+                        return io_err!("Missing ',' separating headers from content");
                     }
                 }
                 CodecState::HeaderKey | CodecState::HeaderValue => {
@@ -116,15 +123,27 @@ impl SCGICodec {
                         match self.decoder_state {
                             CodecState::HeaderKey => {
                                 // Store the header key and enter header value state.
-                                self.header_key = consume_header_string(bytes_with_nul)?;
+                                match consume_header_string(bytes_with_nul) {
+                                    Ok(key) => self.header_key = key,
+                                    Err(e) => return io_err!("Failed to parse header key: {}", e),
+                                }
                                 self.decoder_state = CodecState::HeaderValue;
                             }
                             CodecState::HeaderValue => {
                                 // Store the header key+value entry and enter header key OR content state.
-                                self.headers.push((
-                                    mem::replace(&mut self.header_key, String::new()),
-                                    consume_header_string(bytes_with_nul)?,
-                                ));
+                                match consume_header_string(bytes_with_nul) {
+                                    Ok(val) => self.headers.push((
+                                        mem::replace(&mut self.header_key, String::new()),
+                                        val,
+                                    )),
+                                    Err(e) => {
+                                        return io_err!(
+                                            "Failed to parse value for header {}: {}",
+                                            self.header_key,
+                                            e
+                                        )
+                                    }
+                                };
                                 if self.header_remaining > 0 {
                                     // Still in headers, set up search for next key
                                     self.decoder_state = CodecState::HeaderKey;
@@ -140,14 +159,10 @@ impl SCGICodec {
                         self.next_search_index = buf.len();
                         if self.next_search_index > MAX_HEADER_STRING_BYTES {
                             // This string is getting to be way too long. Bad data? Give up.
-                            return Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                format!(
-                                    "Header key or value size exceeds maximum {} bytes",
-                                    MAX_HEADER_STRING_BYTES
-                                )
-                                .as_str(),
-                            ));
+                            return io_err!(
+                                "Header key or value size exceeds maximum {} bytes",
+                                MAX_HEADER_STRING_BYTES
+                            );
                         }
                         return Ok(None);
                     }
@@ -160,6 +175,7 @@ impl SCGICodec {
     }
 }
 
+/// Decodes SCGI-format requests, while forwarding through any content payload
 impl Decoder for SCGICodec {
     type Item = SCGIRequest;
     type Error = io::Error;
@@ -174,19 +190,17 @@ impl Decoder for SCGICodec {
                 {
                     // Consume size string and trailing ':' from start of buffer
                     // Store the header size and enter header key state
-                    self.header_remaining =
-                        consume_header_size(buf.split_to(self.next_search_index + end_offset + 1))?;
+                    let size_with_colon = buf.split_to(self.next_search_index + end_offset + 1);
+                    // Always ensure next_search_index is updated, even if there's an error.
+                    // This avoids index bounds errors in future passes.
+                    self.next_search_index = 0;
+                    self.header_remaining = consume_header_size(size_with_colon)?;
                     if self.header_remaining > MAX_HEADER_BYTES {
                         // This declared size is way too long. Bad data? Give up. We just want to
                         // avoid accumulating too much data on the header `Vec`. When we've consumed
                         // all `header_remaining` bytes we will switch to content forwarding mode.
-                        return Err(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("Header size exceeds maximum {} bytes", MAX_HEADER_BYTES)
-                                .as_str(),
-                        ));
+                        return io_err!("Header size exceeds maximum {} bytes", MAX_HEADER_BYTES);
                     }
-                    self.next_search_index = 0;
                     if self.header_remaining > 0 {
                         // Start consuming header(s)
                         self.decoder_state = CodecState::HeaderKey;
@@ -211,9 +225,13 @@ impl Decoder for SCGICodec {
             }
             CodecState::Content => {
                 // Consume and forward whatever was received
-                Ok(Some(SCGIRequest::BodyFragment(
-                    buf.split_to(buf.len()).to_vec(),
-                )))
+                if buf.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(SCGIRequest::BodyFragment(
+                        buf.split_to(buf.len()).to_vec(),
+                    )))
+                }
             }
         }
     }
@@ -223,52 +241,32 @@ fn consume_header_size(bytes_with_colon: BytesMut) -> Result<usize, io::Error> {
     if bytes_with_colon.len() == 1 {
         // Got an empty size value, i.e. ':' with no preceding integers.
         // The header size value cannot be empty, must at least provide a '0:'.
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Header size cannot be an empty string",
-        ));
+        return io_err!("Header size cannot be an empty string");
     } else if bytes_with_colon.len() > 2 && bytes_with_colon[0] == b'0' {
         // Size cannot start with a '0' unless it's literally '0:' for empty headers
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Header size cannot be a non-zero value with a leading '0'",
-        ));
+        return io_err!("Header size cannot be a non-zero value with a leading '0'");
     }
     // Omit trailing ':' to parse buffer:
     let size_str = String::from_utf8(bytes_with_colon[..bytes_with_colon.len() - 1].to_vec())
-        .or_else(|_| {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "Header size is not a UTF-8 string",
-            ))
-        })?;
-    size_str.parse().or_else(|size_str| {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("Header size is not an integer: '{}'", size_str).as_str(),
-        ))
-    })
+        .or_else(|_| io_err!("Header size is not a UTF-8 string"))?;
+    size_str
+        .parse()
+        .or_else(|size_str| io_err!("Header size is not an integer: '{}'", size_str))
 }
 
 fn consume_header_string(bytes_with_nul: BytesMut) -> Result<String, io::Error> {
     // Omit trailing NUL to parse buffer as string.
-    String::from_utf8(bytes_with_nul[..bytes_with_nul.len() - 1].to_vec()).or_else(|_| {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Header size is not a UTF-8 string",
-        ))
-    })
+    String::from_utf8(bytes_with_nul[..bytes_with_nul.len() - 1].to_vec())
+        .or_else(|_| io_err!("Header key or value is not a UTF-8 string"))
 }
 
-/// Creates and produces SCGI responses.
+/// Forwards a raw response to an SCGI request back to the client.
 impl Encoder for SCGICodec {
     type Item = Vec<u8>;
     type Error = io::Error;
 
     fn encode(&mut self, data: Vec<u8>, buf: &mut BytesMut) -> Result<(), io::Error> {
         // Forward content (HTTP response, typically?) as-is
-        // TODO consider using an existing HTTP library to accept an HTTP response object, but also
-        // allow raw passthrough in the response as well.
         buf.reserve(data.len());
         buf.put(data);
         Ok(())
