@@ -16,10 +16,10 @@ const MAX_HEADER_BYTES: usize = 256 * 1024;
 pub enum SCGIRequest {
     /// The first Vec contains the headers. The second Vec optionally contains raw byte data from
     /// the request body.
-    Request(Vec<(String, String)>, Vec<u8>),
+    Request(Vec<(String, String)>, BytesMut),
 
     /// Additional body fragment(s) to be used for streaming request data.
-    BodyFragment(Vec<u8>),
+    BodyFragment(BytesMut),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -104,7 +104,7 @@ impl SCGICodec {
                             mem::replace(&mut self.headers, Vec::new()),
                             // Include any remaining body content in this output as well.
                             // In most cases this should effectively conclude the request.
-                            buf.split_to(buf.len()).to_vec(),
+                            buf.split_to(buf.len()),
                         )));
                     } else {
                         // Should always have the comma, missing it implies corrupt input.
@@ -228,9 +228,7 @@ impl Decoder for SCGICodec {
                 if buf.is_empty() {
                     Ok(None)
                 } else {
-                    Ok(Some(SCGIRequest::BodyFragment(
-                        buf.split_to(buf.len()).to_vec(),
-                    )))
+                    Ok(Some(SCGIRequest::BodyFragment(buf.split_to(buf.len()))))
                 }
             }
         }
