@@ -17,17 +17,17 @@ pub enum AbortableItem<T> {
 /// on the next poll.
 pub struct AbortableStream<S, T, E> {
     stream: S,
-    err_handler: Option<fn(E) -> Option<T>>,
+    err_conv: Option<fn(E) -> Option<T>>,
     stop: bool,
 }
 
 impl<S, T, E> AbortableStream<S, T, E> {
     /// Creates a new instance, wrapping the provided stream and using the provided callback to
     /// convert errors before outputting them.
-    pub fn new_err(stream: S, err_handler: fn(E) -> Option<T>) -> AbortableStream<S, T, E> {
+    pub fn with_err_conv(stream: S, err_conv: fn(E) -> Option<T>) -> AbortableStream<S, T, E> {
         AbortableStream {
             stream,
-            err_handler: Some(err_handler),
+            err_conv: Some(err_conv),
             stop: false,
         }
     }
@@ -37,7 +37,7 @@ impl<S, T, E> AbortableStream<S, T, E> {
     pub fn new(stream: S) -> AbortableStream<S, T, E> {
         AbortableStream {
             stream,
-            err_handler: None,
+            err_conv: None,
             stop: false,
         }
     }
@@ -66,9 +66,9 @@ where
             Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
             Ok(Async::NotReady) => Ok(Async::NotReady),
             Err(err) => {
-                // Use custom handler, or fall back to just forwarding the error as-is.
-                match self.err_handler {
-                    Some(err_handler) => Ok(Async::Ready(err_handler(err))),
+                // Use error converter, if provided.
+                match self.err_conv {
+                    Some(err_conv) => Ok(Async::Ready(err_conv(err))),
                     None => Err(err),
                 }
             }

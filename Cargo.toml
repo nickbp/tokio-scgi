@@ -12,3 +12,4 @@ bytes = "0.4.12"
 
 [dev-dependencies]
 proptest = "0.9.4"
+tokio-sync = "0.1.6"

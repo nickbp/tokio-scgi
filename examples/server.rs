@@ -29,8 +29,10 @@ fn main() -> Result<(), Error> {
     let endpoint = env::args().nth(1).unwrap();
     if endpoint.starts_with('-') {
         // Probably a commandline argument like '-h'/'--help', avoid parsing as a hostname
-        Err(syntax())
-    } else if endpoint.contains('/') {
+        return Err(syntax());
+    }
+
+    if endpoint.contains('/') {
         // Probably a path to a file, assume the argument is a unix socket
         tokio::run(
             unix_init(endpoint)?
@@ -38,28 +40,21 @@ fn main() -> Result<(), Error> {
                 .map_err(|e| println!("Unix socket failed: {:?}", e))
                 .for_each(|conn| serve(conn)),
         );
-        Ok(())
     } else {
         // Probably a TCP endpoint, try to resolve it in case it's a hostname
-        let addr = endpoint
-            .to_socket_addrs()
-            .expect(format!("Invalid TCP endpoint '{}'", endpoint).as_str())
-            .next()
-            .unwrap();
-        println!("Listening on {}", addr);
         tokio::run(
-            TcpListener::bind(&addr)?
+            tcp_init(endpoint)?
                 .incoming()
                 .map_err(|e| println!("TCP socket failed: {:?}", e))
                 .for_each(|conn| serve(conn)),
         );
-        Ok(())
     }
+    Ok(())
 }
 
 fn unix_init(path_str: String) -> Result<UnixListener, Error> {
-    // Try to delete the socket file. Avoids AddrInUse errors. No-op if already missing.
     let path = Path::new(&path_str);
+    // Try to delete the socket file. Avoids AddrInUse errors. No-op if already missing.
     fs::remove_file(path)
         .and_then(|()| {
             println!("Deleted existing {}", path.display());
@@ -83,6 +78,19 @@ fn unix_init(path_str: String) -> Result<UnixListener, Error> {
     let mut perms = fs::metadata(&path).unwrap().permissions();
     perms.set_readonly(false);
     fs::set_permissions(&path, perms).unwrap();
+
+    Ok(socket)
+}
+
+fn tcp_init(endpoint_str: String) -> Result<TcpListener, Error> {
+    let addr = endpoint_str
+        .to_socket_addrs()
+        .expect(format!("Invalid TCP endpoint '{}'", endpoint_str).as_str())
+        .next()
+        .unwrap();
+
+    let socket = TcpListener::bind(&addr)?;
+    println!("Listening on {}", addr);
 
     Ok(socket)
 }
@@ -123,7 +131,7 @@ where
     //     has effectively said there's nothing left to be read from there.
     // 7b. If Continue was returned, rx_scgi is queried for more data and the cycle continues.
     let session = tx_scgi
-        .send_all(AbortableStream::new_err(
+        .send_all(AbortableStream::with_err_conv(
             rx_scgi.and_then(move |request| match handler.handle(request) {
                 Ok(r) => Ok(r),
                 Err(e) => Ok(AbortableItem::Stop(handle_error(e))),
