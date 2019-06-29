@@ -8,12 +8,12 @@ const NUL: u8 = b'\0';
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SCGIRequest {
-    /// The first Vec contains the headers. The second Vec optionally contains raw byte data to
-    /// include in the request body.
-    Request(Vec<(String, String)>, Vec<u8>),
+    /// The Vec contains the headers. The BytesMut optionally contains raw byte data to include in
+    /// the request body.
+    Request(Vec<(String, String)>, BytesMut),
 
     /// Additional body fragment(s) to be used for streaming request data.
-    BodyFragment(Vec<u8>),
+    BodyFragment(BytesMut),
 }
 
 /// A `Codec` implementation that creates and parses SCGI requests.
@@ -28,18 +28,16 @@ impl SCGICodec {
 }
 
 impl Decoder for SCGICodec {
-    type Item = Vec<u8>;
+    type Item = BytesMut;
     type Error = io::Error;
 
-    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Vec<u8>>, io::Error> {
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<BytesMut>, io::Error> {
         // Forward content (HTTP response, typically?) as-is
-        // TODO consider using an existing HTTP library to accept an HTTP response object, but also
-        // allow raw passthrough in the response as well.
-        Ok(Some(buf.split_to(buf.len()).to_vec()))
+        Ok(Some(buf.split_to(buf.len())))
     }
 }
 
-/// Creates and produces SCGI requests. Invoke once with `Headers`, followed by zero or more calls
+/// Creates and produces SCGI requests. Invoke once with `Request`, followed by zero or more calls
 /// with `BodyFragment`.
 impl Encoder for SCGICodec {
     type Item = SCGIRequest;

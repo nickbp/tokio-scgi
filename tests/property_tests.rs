@@ -23,9 +23,12 @@ fn decode_encode_protocol_sample() {
     expected_headers.push(("SCGI".to_string(), "1".to_string()));
     expected_headers.push(("REQUEST_METHOD".to_string(), "POST".to_string()));
     expected_headers.push(("REQUEST_URI".to_string(), "/deepthought".to_string()));
-    let expected_body = b"What is the answer to life?";
+    let expected_body_str = b"What is the answer to life?";
+    let mut expected_body = BytesMut::new();
+    expected_body.reserve(expected_body_str.len());
+    expected_body.put(expected_body_str.to_vec());
     assert_eq!(
-        ServerRequest::Request(expected_headers.clone(), expected_body.to_vec()),
+        ServerRequest::Request(expected_headers.clone(), expected_body.clone()),
         decoder.decode(&mut buf).unwrap().unwrap()
     );
 
@@ -33,7 +36,7 @@ fn decode_encode_protocol_sample() {
     let mut encoder = ClientCodec::new();
     encoder
         .encode(
-            ClientRequest::Request(expected_headers.clone(), expected_body.to_vec()),
+            ClientRequest::Request(expected_headers.clone(), expected_body.clone()),
             &mut buf,
         )
         .unwrap();
@@ -43,15 +46,12 @@ fn decode_encode_protocol_sample() {
     // Then try again with headers and body in separate calls:
     encoder
         .encode(
-            ClientRequest::Request(expected_headers, Vec::new()),
+            ClientRequest::Request(expected_headers, BytesMut::new()),
             &mut buf,
         )
         .unwrap();
     encoder
-        .encode(
-            ClientRequest::BodyFragment(expected_body.to_vec()),
-            &mut buf,
-        )
+        .encode(ClientRequest::BodyFragment(expected_body.clone()), &mut buf)
         .unwrap();
     assert_eq!(buf.to_vec(), protocol_sample.to_vec());
 }
@@ -62,7 +62,10 @@ fn encode_decode_empty_headers() {
 
     // First send empty headers.
     ClientCodec::new()
-        .encode(ClientRequest::Request(Vec::new(), Vec::new()), &mut buf)
+        .encode(
+            ClientRequest::Request(Vec::new(), BytesMut::new()),
+            &mut buf,
+        )
         .unwrap();
     assert_eq!("0:,".as_bytes(), buf);
 
@@ -76,7 +79,7 @@ fn encode_decode_empty_headers() {
         assert!(false, "expected None");
     }
 
-    check_content_slow(buf, &Vec::new(), &String::new());
+    check_content_slow(buf, Vec::new(), &String::new());
 }
 
 #[test]
@@ -85,7 +88,7 @@ fn encode_decode_empty_body() {
 
     // First send empty data.
     ClientCodec::new()
-        .encode(ClientRequest::BodyFragment(Vec::new()), &mut buf)
+        .encode(ClientRequest::BodyFragment(BytesMut::new()), &mut buf)
         .unwrap();
     assert_eq!(0, buf.len());
 
@@ -95,7 +98,7 @@ fn encode_decode_empty_body() {
         assert!(false, "expected None");
     }
 
-    check_content_slow(buf, &Vec::new(), &String::new());
+    check_content_slow(buf, Vec::new(), &String::new());
 }
 
 proptest! {
@@ -128,7 +131,7 @@ proptest! {
 fn check_content(headers: &Vec<(String, String)>, content: &String) {
     let mut buf = BytesMut::new();
     let mut encoder = ClientCodec::new();
-    let content_req = Vec::from(content.as_bytes());
+    let content_req = BytesMut::from(content.as_bytes());
 
     // First send the headers+content in a single request
 
@@ -157,13 +160,13 @@ fn check_content(headers: &Vec<(String, String)>, content: &String) {
         assert!(false, "expected None");
     }
 
-    check_content_slow(encoded_data_combined, headers, content);
+    check_content_slow(encoded_data_combined, headers.to_vec(), content);
 
     // Then do it again with just the headers and empty content
 
     encoder
         .encode(
-            ClientRequest::Request(headers.clone(), Vec::new()),
+            ClientRequest::Request(headers.clone(), BytesMut::new()),
             &mut buf,
         )
         .unwrap();
@@ -186,13 +189,13 @@ fn check_content(headers: &Vec<(String, String)>, content: &String) {
         assert!(false, "expected None");
     }
 
-    check_content_slow(encoded_data_header_only, headers, &String::new());
+    check_content_slow(encoded_data_header_only, headers.clone(), &String::new());
 
     // Finally try the headers+content as separate payloads
 
     encoder
         .encode(
-            ClientRequest::Request(headers.clone(), Vec::new()),
+            ClientRequest::Request(headers.clone(), BytesMut::new()),
             &mut buf,
         )
         .unwrap();
@@ -221,19 +224,19 @@ fn check_content(headers: &Vec<(String, String)>, content: &String) {
         assert!(false, "expected None");
     }
 
-    check_content_slow(encoded_data_separate, headers, content);
+    check_content_slow(encoded_data_separate, headers.clone(), content);
 }
 
 /// Run the decoder with byte-by-byte data, then check that the result matches what's expected
 fn check_content_slow(
     data: BytesMut,
-    expect_headers: &Vec<(String, String)>,
+    expect_headers: Vec<(String, String)>,
     expect_content: &String,
 ) {
     let mut buf = BytesMut::with_capacity(data.len());
 
     let mut got_headers: Vec<(String, String)> = Vec::new();
-    let mut got_content = Vec::new();
+    let mut got_content = BytesMut::new();
 
     // Add each char individually, trying to decode each time:
     let mut decoder = ServerCodec::new();
@@ -250,10 +253,12 @@ fn check_content_slow(
                     headers
                 );
                 got_headers.append(&mut headers.clone());
-                got_content.append(&mut body.clone());
+                got_content.reserve(body.len());
+                got_content.put(body);
             }
             Ok(Some(ServerRequest::BodyFragment(fragment))) => {
-                got_content.append(&mut fragment.clone());
+                got_content.reserve(fragment.len());
+                got_content.put(fragment);
             }
             Ok(None) => {}
             Err(err) => assert!(
@@ -264,8 +269,8 @@ fn check_content_slow(
         }
     }
 
-    let got_content_str = String::from_utf8(got_content).unwrap();
-    assert_eq!(expect_headers, &got_headers);
+    let got_content_str = String::from_utf8(got_content.to_vec()).unwrap();
+    assert_eq!(expect_headers, got_headers);
     assert_eq!(
         expect_content, &got_content_str,
         "left: {:?} right: {:?}",
