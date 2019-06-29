@@ -123,33 +123,15 @@ where
     //     has effectively said there's nothing left to be read from there.
     // 7b. If Continue was returned, rx_scgi is queried for more data and the cycle continues.
     let session = tx_scgi
-        .send_all(AbortableStream::new(rx_scgi.and_then(move |request| {
-            match handler.handle(request) {
+        .send_all(AbortableStream::new_err(
+            rx_scgi.and_then(move |request| match handler.handle(request) {
                 Ok(r) => Ok(r),
-                Err(e) => {
-                    let msg = format!("{}", e);
-                    match e.kind() {
-                        // InvalidData implies an error from the SCGI codec.
-                        // Let's assume the request was malformed.
-                        ErrorKind::InvalidData => Ok(AbortableItem::Stop(http_response!(
-                            "400 Bad Request",
-                            "text/plain",
-                            msg
-                        ))),
-                        // Handler should have just produced an error response for e.g. HTTP 404.
-                        // Therefore assume any other Err cases are due to a handler bug.
-                        _ => {
-                            println!("Replying with HTTP 500 due to handler error: {}", e);
-                            Ok(AbortableItem::Stop(http_response!(
-                                "500 Internal Server Error",
-                                "text/plain",
-                                msg
-                            )))
-                        }
-                    }
-                }
-            }
-        })))
+                Err(e) => Ok(AbortableItem::Stop(handle_error(e))),
+            }),
+            // We don't see errors produced by the SCGICodec itself, so we give AbortableStream this
+            // custom error handler to turn any parsing errors into nice HTML responses:
+            |err| Some(handle_error(err)),
+        ))
         .then(|send_all_result| {
             match send_all_result {
                 Ok(_session) => {
@@ -268,6 +250,21 @@ impl SampleHandler {
                     Ok(AbortableItem::Continue(Vec::new()))
                 }
             }
+        }
+    }
+}
+
+fn handle_error(e: Error) -> Vec<u8> {
+    let msg = format!("{}", e);
+    match e.kind() {
+        // InvalidData implies an error from the SCGI codec.
+        // Let's assume the request was malformed.
+        ErrorKind::InvalidData => http_response!("400 Bad Request", "text/plain", msg),
+        // Handler should have just produced an error response for e.g. HTTP 404.
+        // Therefore assume any other Err cases are due to a handler bug.
+        _ => {
+            println!("Replying with HTTP 500 due to handler error: {}", e);
+            http_response!("500 Internal Server Error", "text/plain", msg)
         }
     }
 }
