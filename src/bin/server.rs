@@ -10,6 +10,7 @@ use tokio;
 use tokio::net::{TcpListener, UnixListener};
 use tokio::prelude::*;
 use tokio_codec::Framed;
+use tokio_scgi::abortable_stream::{AbortableItem, AbortableStream};
 use tokio_scgi::server::{SCGICodec, SCGIRequest};
 
 fn syntax() -> Error {
@@ -115,8 +116,8 @@ where
     //     it's polled. In particular it will avoid reading from rx_scgi again, since demo_handler()
     //     has effectively said there's nothing left to be read.
     // 6b. If Continue was returned, rx_scgi is queried for more data and the cycle continues.
-    let session = tx_scgi.send_all(AbortableStream::new(
-        rx_scgi.and_then(move |request| {
+    let session = tx_scgi
+        .send_all(AbortableStream::new(rx_scgi.and_then(move |request| {
             match demo_handler(request) {
                 Ok(r) => Ok(r),
                 Err(e) => {
@@ -124,36 +125,43 @@ where
                     match e.kind() {
                         // InvalidData implies an error from the SCGI codec.
                         // Let's assume the request was malformed.
-                        ErrorKind::InvalidData => Ok(AbortableItem::Stop(http_response!("400 Bad Request", "text/plain", msg))),
+                        ErrorKind::InvalidData => Ok(AbortableItem::Stop(http_response!(
+                            "400 Bad Request",
+                            "text/plain",
+                            msg
+                        ))),
                         // demo_handler() should have just produced an error response for e.g. 404
                         // errors , so let's assume any other Err cases are due to a handler bug.
                         _ => {
                             println!("Replying with HTTP 500 due to handler error: {}", e);
-                            Ok(AbortableItem::Stop(http_response!("500 Internal Server Error", "text/plain", msg)))
-                        },
+                            Ok(AbortableItem::Stop(http_response!(
+                                "500 Internal Server Error",
+                                "text/plain",
+                                msg
+                            )))
+                        }
                     }
                 }
             }
-        })
-    ))
-    .then(|send_all_result| {
-        match send_all_result {
-            Ok(_session) => {
-                println!("Session ended successfully somehow");
-                Ok(())
+        })))
+        .then(|send_all_result| {
+            match send_all_result {
+                Ok(_session) => {
+                    println!("Session ended successfully somehow");
+                    Ok(())
+                }
+                Err(e) => {
+                    println!("Unhandled session error: {:?}", e);
+                    // Keep spawn() typing happy:
+                    Err(())
+                }
             }
-            Err(e) => {
-                println!("Unhandled session error: {:?}", e);
-                // Keep spawn() typing happy:
-                Err(())
-            }
-        }
-    });
+        });
     tokio::spawn(session)
 }
 
 /// This is where you'd put in your code accepting the request and returning a response.
-fn demo_handler(req: SCGIRequest) -> Result<AbortableItem, Error> {
+fn demo_handler(req: SCGIRequest) -> Result<AbortableItem<Vec<u8>>, Error> {
     match req {
         // Accept the header and any POSTed payload in the body.
         SCGIRequest::Request(headers, body) => {
@@ -169,7 +177,11 @@ fn demo_handler(req: SCGIRequest) -> Result<AbortableItem, Error> {
 </body></html>\n",
                 epoch_secs, headers, body
             );
-            Ok(AbortableItem::Stop(http_response!("200 OK", "text/html", content)))
+            Ok(AbortableItem::Stop(http_response!(
+                "200 OK",
+                "text/html",
+                content
+            )))
         }
 
         // Support for streaming/multipart content depends on the streaming format used. Your
@@ -186,59 +198,10 @@ fn demo_handler(req: SCGIRequest) -> Result<AbortableItem, Error> {
             // This implementation closes the connection after the first Request, so this shouldn't
             // be reachable anyway.
             // TODO show example of returning Continue until Content-Length is consumed?
-            Err(Error::new(ErrorKind::InvalidData, "Multiple body fragments are not supported"))
-        }
-    }
-}
-
-/// Allows handle() to tell serve() whether to keep reading or to close the socket after sending
-/// back this response.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AbortableItem {
-    /// Continue reading after this item
-    Continue(Vec<u8>),
-
-    /// Stop reading after this item
-    Stop(Vec<u8>),
-}
-
-
-pub struct AbortableStream<T> {
-    stream: T,
-    stop: bool,
-}
-
-impl<T> AbortableStream<T> {
-    fn new(stream: T) -> AbortableStream<T> {
-        AbortableStream {
-            stream,
-            stop: false,
-        }
-    }
-}
-
-impl<T> Stream for AbortableStream<T>
-where T: Stream<Item = AbortableItem, Error = Error>
-{
-    type Item = Vec<u8>;
-    type Error = T::Error;
-
-    fn poll(&mut self) -> Poll<Option<Vec<u8>>, Self::Error> {
-        if self.stop {
-            // Do not read from the wrapped stream, just exit.
-            return Ok(Async::Ready(None));
-        }
-        match self.stream.poll() {
-            // Interpret AbortableItem flag:
-            Ok(Async::Ready(Some(AbortableItem::Continue(item)))) => Ok(Async::Ready(Some(item))),
-            Ok(Async::Ready(Some(AbortableItem::Stop(item)))) => {
-                self.stop = true;
-                Ok(Async::Ready(Some(item)))
-            },
-            // Passthroughs:
-            Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
-            Ok(Async::NotReady) => Ok(Async::NotReady),
-            Err(err) => Err(err),
+            Err(Error::new(
+                ErrorKind::InvalidData,
+                "Multiple body fragments are not supported",
+            ))
         }
     }
 }
