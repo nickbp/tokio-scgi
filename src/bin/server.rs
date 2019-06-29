@@ -103,60 +103,57 @@ where
     T: AsyncRead + AsyncWrite + 'static + std::marker::Send + std::fmt::Debug,
 {
     let (tx_scgi, rx_scgi) = Framed::new(conn, SCGICodec::new()).split();
-    let session = tx_scgi
-        .send_all(
-            // TODO i think what's happening is we're trying to query for more data here
-            // ideally we'd have handler() return a different code that says 'here's my response but
-            // stop now' and then this code would cut the stream without trying another read.
-            rx_scgi
-                .and_then(|request| future::lazy(move || handler(request)))
-                .then(|rx_result| {
-                    match &rx_result {
-                        Ok(_) => {
-                            println!("Great job team");
-                            rx_result
-                        }
-                        Err(e) => {
-                            println!("handler returned error: {}", e);
-                            let msg = format!("{}", e);
-                            match e.kind() {
-                                ErrorKind::InvalidData => {
-                                    // InvalidData implies an error from the SCGI codec.
-                                    // Let's assume the request was malformed.
-                                    Ok(http_response!("400 Bad Request", "text/plain", msg))
-                                }
-                                ErrorKind::NotFound => {
-                                    // Example mapping of other handler errors.
-                                    Ok(http_response!("404 Not Found", "text/plain", msg))
-                                }
-                                _ => Ok(http_response!(
-                                    "500 Internal Server Error",
-                                    "text/plain",
-                                    msg
-                                )),
-                            }
-                        }
-                    }
-                }),
-        )
-        .then(|send_all_result| {
-            match send_all_result {
-                Ok(_session) => {
-                    println!("Session ended successfully somehow");
-                    Ok(())
-                }
+    // Request flow:
+    // 1. rx_scgi is queried for request data. It blocks until data is available.
+    // 2. The request data is passed to SCGICodec, which consumes it and returns Request or
+    //    BodyFragment when ready
+    // 3. The SCGI Request or BodyFragment (if any is ready) is then passed to demo_handler()
+    // 4. demo_handler() returns Continue or Stop with its response data, which can be an empty vec
+    // 5. In both Continue and Stop cases, the returned response data is sent back to the client
+    //    as-is via tx_scgi. In this direction the SCGICodec functions as a passthrough.
+    // 6a. If Stop was returned, a bit is set to ensure that the stream returns None the next time
+    //     it's polled. In particular it will avoid reading from rx_scgi again, since demo_handler()
+    //     has effectively said there's nothing left to be read.
+    // 6b. If Continue was returned, rx_scgi is queried for more data and the cycle continues.
+    let session = tx_scgi.send_all(AbortableStream::new(
+        rx_scgi.and_then(move |request| {
+            match demo_handler(request) {
+                Ok(r) => Ok(r),
                 Err(e) => {
-                    println!("Unhandled session error: {:?}", e);
-                    // Keep spawn() typing happy:
-                    Err(())
+                    let msg = format!("{}", e);
+                    match e.kind() {
+                        // InvalidData implies an error from the SCGI codec.
+                        // Let's assume the request was malformed.
+                        ErrorKind::InvalidData => Ok(AbortableItem::Stop(http_response!("400 Bad Request", "text/plain", msg))),
+                        // demo_handler() should have just produced an error response for e.g. 404
+                        // errors , so let's assume any other Err cases are due to a handler bug.
+                        _ => {
+                            println!("Replying with HTTP 500 due to handler error: {}", e);
+                            Ok(AbortableItem::Stop(http_response!("500 Internal Server Error", "text/plain", msg)))
+                        },
+                    }
                 }
             }
-        });
+        })
+    ))
+    .then(|send_all_result| {
+        match send_all_result {
+            Ok(_session) => {
+                println!("Session ended successfully somehow");
+                Ok(())
+            }
+            Err(e) => {
+                println!("Unhandled session error: {:?}", e);
+                // Keep spawn() typing happy:
+                Err(())
+            }
+        }
+    });
     tokio::spawn(session)
 }
 
 /// This is where you'd put in your code accepting the request and returning a response.
-fn handler(req: SCGIRequest) -> Result<Vec<u8>, Error> {
+fn demo_handler(req: SCGIRequest) -> Result<AbortableItem, Error> {
     match req {
         // Accept the header and any POSTed payload in the body.
         SCGIRequest::Request(headers, body) => {
@@ -172,7 +169,7 @@ fn handler(req: SCGIRequest) -> Result<Vec<u8>, Error> {
 </body></html>\n",
                 epoch_secs, headers, body
             );
-            Ok(http_response!("200 OK", "text/html", content))
+            Ok(AbortableItem::Stop(http_response!("200 OK", "text/html", content)))
         }
 
         // Support for streaming/multipart content depends on the streaming format used. Your
@@ -188,10 +185,60 @@ fn handler(req: SCGIRequest) -> Result<Vec<u8>, Error> {
         SCGIRequest::BodyFragment(_more_body) => {
             // This implementation closes the connection after the first Request, so this shouldn't
             // be reachable anyway.
-            Err(Error::new(
-                ErrorKind::InvalidData,
-                "Multiple body fragments are not supported",
-            ))
+            // TODO show example of returning Continue until Content-Length is consumed?
+            Err(Error::new(ErrorKind::InvalidData, "Multiple body fragments are not supported"))
+        }
+    }
+}
+
+/// Allows handle() to tell serve() whether to keep reading or to close the socket after sending
+/// back this response.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AbortableItem {
+    /// Continue reading after this item
+    Continue(Vec<u8>),
+
+    /// Stop reading after this item
+    Stop(Vec<u8>),
+}
+
+
+pub struct AbortableStream<T> {
+    stream: T,
+    stop: bool,
+}
+
+impl<T> AbortableStream<T> {
+    fn new(stream: T) -> AbortableStream<T> {
+        AbortableStream {
+            stream,
+            stop: false,
+        }
+    }
+}
+
+impl<T> Stream for AbortableStream<T>
+where T: Stream<Item = AbortableItem, Error = Error>
+{
+    type Item = Vec<u8>;
+    type Error = T::Error;
+
+    fn poll(&mut self) -> Poll<Option<Vec<u8>>, Self::Error> {
+        if self.stop {
+            // Do not read from the wrapped stream, just exit.
+            return Ok(Async::Ready(None));
+        }
+        match self.stream.poll() {
+            // Interpret AbortableItem flag:
+            Ok(Async::Ready(Some(AbortableItem::Continue(item)))) => Ok(Async::Ready(Some(item))),
+            Ok(Async::Ready(Some(AbortableItem::Stop(item)))) => {
+                self.stop = true;
+                Ok(Async::Ready(Some(item)))
+            },
+            // Passthroughs:
+            Ok(Async::Ready(None)) => Ok(Async::Ready(None)),
+            Ok(Async::NotReady) => Ok(Async::NotReady),
+            Err(err) => Err(err),
         }
     }
 }

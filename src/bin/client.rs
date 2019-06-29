@@ -4,6 +4,7 @@ fn main() -> () {
     println!("hi")
 }
 
+// TODO just write a stdlib sync version, to show tokio usage isnt required
 /*
 use std::env;
 use std::io::Error;
