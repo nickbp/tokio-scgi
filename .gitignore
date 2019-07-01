@@ -1,4 +1,5 @@
 .idea
 /target
 **/*.rs.bk
+*.dia~
 tests/*.proptest-regressions

@@ -2,7 +2,8 @@
 name = "tokio-scgi"
 version = "0.1.0"
 authors = ["Nick Parker <nick@nickbp.com>"]
-license = "GPL-3.0-or-later"
+license = "MIT"
+readme = "README.md"
 edition = "2018"
 
 [dependencies]

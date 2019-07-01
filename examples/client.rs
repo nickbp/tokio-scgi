@@ -30,6 +30,8 @@ fn main() -> Result<(), Error> {
         return Err(syntax());
     }
 
+    // Create a channel which will be provided the response by the async callbacks once it's arrived.
+    // Meanwhile we wait for the response on this end of things.
     let (sender, receiver) = oneshot::channel::<Option<BytesMut>>();
     if endpoint.contains('/') {
         // Probably a path to a file, assume the argument is a unix socket
@@ -47,9 +49,13 @@ fn main() -> Result<(), Error> {
         connect(TcpStream::connect(&addr), sender);
     }
 
+    // Wait for the callbacks to get the response and provide it to the channel.
     match receiver.wait() {
         Ok(Some(response)) => {
-            println!("response = {:?}", response);
+            match String::from_utf8(response.to_vec()) {
+                Ok(s) => println!("Got {} bytes:\n{}", response.len(), s),
+                Err(e) => println!("{} byte response is not UTF8 ({}):\n{:?}", response.len(), e, response)
+            }
             Ok(())
         }
         Ok(None) => Err(Error::new(ErrorKind::Other, "No response received")),
@@ -113,9 +119,8 @@ where
             //output.send(None);
         })
         .and_then(move |(response, _stream)| {
-            match output.send(response) {
-                Ok(()) => println!("Sent response"),
-                Err(_response) => println!("Failed to send response"),
+            if let Err(_response) = output.send(response) {
+                println!("Failed to send response");
             }
             Ok(())
         });
@@ -123,7 +128,7 @@ where
 }
 
 fn build_request() -> SCGIRequest {
-    let content_str = b"{\"description\": \"my name is also bort\"}";
+    let content_str = b"{\"description\": \"my name is also bort <><><>\"}";
     let mut content = BytesMut::with_capacity(content_str.len());
     content.put(content_str.to_vec());
 

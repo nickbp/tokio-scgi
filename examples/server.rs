@@ -281,16 +281,22 @@ fn build_response(headers: &Vec<(String, String)>, body: &BytesMut) -> Vec<u8> {
     let epoch_secs = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
-    // This sample does not protect against HTML injection.
+    let body_str = match String::from_utf8(body.to_vec()) {
+        // Printable content with minimal effort at avoiding HTML injection:
+        Ok(s) => format!("{}", s.replace('<', "&lt;").replace('>', "&gt;")),
+        // Not printable content, fall back to printing as list of dec codes:
+        Err(_e) => format!("{:?}", body.to_vec())
+    };
     let content = format!(
         "<html><head><title>scgi-sample-server</title></head><body>
 <p>hello! the epoch time is {:?}, and your request was:</p>
 <ul><li>headers: {:?}</li>
-<li>body: {:?}</li></ul>
+<li>body ({} bytes): {}</li></ul>
 </body></html>\n",
         epoch_secs,
         headers,
-        body.to_vec()
+        body.len(),
+        body_str
     );
     http_response!("200 OK", "text/html", content)
 }
