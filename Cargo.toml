@@ -3,8 +3,10 @@ name = "tokio-scgi"
 version = "0.1.0"
 authors = ["Nick Parker <nick@nickbp.com>"]
 license = "MIT"
-readme = "README.md"
 edition = "2018"
+readme = "README.md"
+description = "Tokio codec for building and parsing SCGI requests"
+repository = "https://github.com/nickbp/tokio-scgi"
 
 [dependencies]
 tokio = "0.1.21"
