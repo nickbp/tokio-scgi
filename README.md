@@ -95,6 +95,28 @@ Many web servers have built-in support for enabling an SCGI client. For example,
     ProxyPass /api/ scgi://localhost:4000/
     ```
 
+# Protocol
+
+The request format is defined as follows:
+```
+pub enum SCGIRequest {
+    /// The first Vec contains the headers. The second Vec optionally contains raw byte data from
+    /// the request body.
+    Request(Vec<(String, String)>, BytesMut),
+
+    /// Additional body fragment(s) to be used for streaming request data.
+    BodyFragment(BytesMut),
+}
+```
+
+For a given request session, the SCGI service would first receive a `Request` containing the request headers, optionally paired with some request body data. If the requesting service (HTTP server) fragments or streams the request body into multiple packets, the SCGI service will receive the packets as `BodyFragment`s following that `Request`. As the packets arrive, the SCGI service can either start its response immediately or it can wait for all of the request to arrive first. The response format is up to the application and is not handled by this codec, but in practice it would typically be an HTTP response. After sending the response, the SCGI service then closes the socket.
+
+The following diagram shows an example of a fragmented request from the HTTP server to the SCGI service which is answered with a fragmented response. This is done without necessarily waiting for all of the request fragments to arrive. The optional parts are in _italics_:
+
+![query-timeline-diagram](query.png)
+
+Again, support for fragmented requests and responses is an optional feature that's only necessary for certain applications involving large or streamed payloads. Most services will be well-served by just waiting for the main `Request` object, doing some work, then sending back the response. No `BodyFragment`s required. However, the provided [examples](examples/) include a sample implementation of using the `Content-Length` header to detect when a fragmented request has all arrived.
+
 # Contributing
 
 Contributions are welcome. The code is structured as follows:
