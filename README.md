@@ -4,7 +4,7 @@ This is a Rust library which implements support for building [SCGI](https://pyth
 
 SCGI is a [simple and efficient](http://python.ca/scgi/protocol.txt) protocol for communicating between frontend web servers and backend applications over a TCP or local Unix socket. It compares (favorably) to [FastCGI](https://en.wikipedia.org/wiki/FastCGI), another protocol with a similar purpose. This library provides support for writing both SCGI servers and clients in Rust, with support for both TCP and Unix sockets.
 
-![user-webserver-scgiapp](diagram.png)
+![user-webserver-scgiapp](images/diagram.png)
 
 A common use case would be a web server which queries a separate backend service for certain requests. The web server would be the SCGI client and the backend service would be the SCGI server. Note that the SCGI server should not be directly visible to the public internet, instead it should only be accessible via the web server which is effectively proxying it.
 
@@ -113,7 +113,7 @@ For a given request session, the SCGI service would first receive a `Request` co
 
 The following diagram shows an example of a fragmented request from the HTTP server to the SCGI service which is answered with a fragmented response. This is done without necessarily waiting for all of the request fragments to arrive. The optional parts are in _italics_:
 
-![query-timeline-diagram](query.png)
+![query-timeline-diagram](images/query.png)
 
 Again, support for fragmented requests and responses is an optional feature that's only necessary for certain applications involving large or streamed payloads. Most services will be well-served by just waiting for the main `Request` object, doing some work, then sending back the response. No `BodyFragment`s required. However, the provided [examples](examples/) include a sample implementation of using the `Content-Length` header to detect when a fragmented request has all arrived.
 
