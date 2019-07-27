@@ -9,7 +9,7 @@ description = "Tokio codec for building and parsing SCGI requests"
 repository = "https://github.com/nickbp/tokio-scgi"
 
 [dependencies]
-tokio = "0.1.21"
+tokio = "0.1.22"
 tokio-codec = "0.1.1"
 bytes = "0.4.12"
 
