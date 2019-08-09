@@ -10,7 +10,3 @@ pub mod server;
 
 /// For an SCGI client (usually a web server): Builds SCGI requests and receives raw byte responses.
 pub mod client;
-
-/// Utility for a stream which will abort its NEXT call when told to do so by the thing it's
-/// streaming against.
-pub mod abortable_stream;

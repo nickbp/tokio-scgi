@@ -9,10 +9,9 @@ description = "Tokio codec for building and parsing SCGI requests"
 repository = "https://github.com/nickbp/tokio-scgi"
 
 [dependencies]
-tokio = "0.1.22"
-tokio-codec = "0.1.1"
+tokio = "=0.2.0-alpha.1"
+tokio-codec = "=0.2.0-alpha.1"
 bytes = "0.4.12"
 
 [dev-dependencies]
 proptest = "0.9.4"
-tokio-sync = "0.1.6"

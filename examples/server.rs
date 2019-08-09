@@ -1,4 +1,5 @@
 #![deny(warnings, rust_2018_idioms)]
+#![feature(async_await)]
 
 use bytes::{BufMut, BytesMut};
 use std::env;
@@ -11,7 +12,6 @@ use tokio;
 use tokio::net::{TcpListener, UnixListener};
 use tokio::prelude::*;
 use tokio_codec::Framed;
-use tokio_scgi::abortable_stream::{AbortableItem, AbortableStream};
 use tokio_scgi::server::{SCGICodec, SCGIRequest};
 
 fn syntax() -> Error {
@@ -22,7 +22,8 @@ fn syntax() -> Error {
     Error::new(ErrorKind::InvalidInput, "Missing required argument")
 }
 
-fn main() -> Result<(), Error> {
+#[tokio::main]
+async fn main() -> Result<(), std::io::Error> {
     if env::args().len() <= 1 {
         return Err(syntax());
     }
@@ -34,22 +35,29 @@ fn main() -> Result<(), Error> {
 
     if endpoint.contains('/') {
         // Probably a path to a file, assume the argument is a unix socket
-        tokio::run(
-            unix_init(endpoint)?
-                .incoming()
-                .map_err(|e| println!("Unix socket failed: {:?}", e))
-                .for_each(|conn| serve(conn)),
-        );
+        let mut bind = unix_init(endpoint)?;
+        loop {
+            let (conn, _addr) = bind.accept().await?;
+            tokio::spawn(async move {
+                match serve(conn).await {
+                    Err(e) =>{ println!("Error serving UDS session: {:?}", e); }
+                    Ok(()) => { println!("Served UDS request"); }
+                };
+            });
+        }
     } else {
         // Probably a TCP endpoint, try to resolve it in case it's a hostname
-        tokio::run(
-            tcp_init(endpoint)?
-                .incoming()
-                .map_err(|e| println!("TCP socket failed: {:?}", e))
-                .for_each(|conn| serve(conn)),
-        );
+        let mut bind = tcp_init(endpoint)?;
+        loop {
+            let (conn, addr) = bind.accept().await?;
+            tokio::spawn(async move {
+                match serve(conn).await {
+                    Err(e) => { println!("Error when serving TCP session from {:?}: {:?}", addr, e); }
+                    Ok(()) => { println!("Served TCP request from {:?}", addr); }
+                };
+            });
+        }
     }
-    Ok(())
 }
 
 fn unix_init(path_str: String) -> Result<UnixListener, Error> {
@@ -108,52 +116,35 @@ macro_rules! http_response {
     };
 }
 
-fn serve<T>(conn: T) -> tokio::executor::Spawn
-where
-    T: AsyncRead + AsyncWrite + 'static + std::marker::Send + std::fmt::Debug,
-{
+async fn serve<C>(conn: C) -> Result<(), Error>
+where C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::fmt::Debug {
     let mut handler = SampleHandler::new();
-    let (tx_scgi, rx_scgi) = Framed::new(conn, SCGICodec::new()).split();
-    // Request flow:
-    // 1. rx_scgi is queried for request data. It blocks until data is available.
-    // 2. The raw request data is received and passed to SCGICodec. which consumes it and returns
-    //    an SCGI Request or BodyFragment when enough of the raw data has arrived
-    // 3. SCGICodec consumes the raw request data, and waits for at least the complete SCGI headers.
-    //    At this point SCGICodec will return a Request, followed by zero or more BodyFragments as
-    //    any more raw request data comes in.
-    // 4. The Request and any BodyFragments are passed to sample handler, which then returns a
-    //    response.
-    // 5. Sample handler returns Continue or Stop with its response data, which can be an empty vec.
-    // 6. In both Continue and Stop cases, the returned response data is sent back to the client
-    //    as-is using tx_scgi. In this direction the SCGICodec functions as a passthrough.
-    // 7a. If Stop was returned, a bit is set to ensure that the stream returns None the next time
-    //     it's polled. In particular it will avoid reading from rx_scgi again, since sample handler
-    //     has effectively said there's nothing left to be read from there.
-    // 7b. If Continue was returned, rx_scgi is queried for more data and the cycle continues.
-    let session = tx_scgi
-        .send_all(AbortableStream::with_err_conv(
-            rx_scgi.and_then(move |request| match handler.handle(request) {
-                Ok(r) => Ok(r),
-                Err(e) => Ok(AbortableItem::Stop(handle_error(e))),
-            }),
-            // We don't see errors produced by the SCGICodec itself, so we give AbortableStream this
-            // custom error handler to turn any parsing errors into nice HTML responses:
-            |err| Some(handle_error(err)),
-        ))
-        .then(|send_all_result| {
-            match send_all_result {
-                Ok(_session) => {
-                    // Session ended successfully
-                    Ok(())
-                }
-                Err(e) => {
-                    println!("Unhandled session error: {:?}", e);
-                    // Keep spawn() typing happy:
-                    Err(())
-                }
-            }
-        });
-    tokio::spawn(session)
+    let (mut tx_scgi, rx_scgi) = Framed::new(conn, SCGICodec::new()).split();
+    match rx_scgi.into_future().await {
+        (None, _new_rx) => {
+            // SCGI request not ready: loop for more rx data
+            // TODO loop
+            tx_scgi.send(handle_error(
+                Error::new(ErrorKind::Other, "TODO partial requests aren't supported")
+            )).await
+        },
+        (Some(Err(e)), _new_rx) =>
+            // RX error: return error and abort
+            Err(Error::new(ErrorKind::Other, format!("Error when waiting for request: {}", e))),
+        (Some(Ok(request)), _) =>
+            // Got SCGI request: pass to handler
+            match handler.handle(request) {
+                Ok(Some(r)) =>
+                    // Response ready: send and exit
+                    tx_scgi.send(r).await,
+                Ok(None) =>
+                    // Response not ready: loop for more rx data
+                    Ok(()), // TODO loop
+                Err(e) =>
+                    // Handler error: respond with formatted error message
+                    tx_scgi.send(handle_error(e)).await,
+            },
+    }
 }
 
 struct SampleHandler {
@@ -181,7 +172,7 @@ impl SampleHandler {
     }
 
     /// This is where you'd put in your code accepting the request and returning a response.
-    fn handle(&mut self, req: SCGIRequest) -> Result<AbortableItem<Vec<u8>>, Error> {
+    fn handle(&mut self, req: SCGIRequest) -> Result<Option<Vec<u8>>, Error> {
         match req {
             // Accept the header and any POSTed payload in the body.
             SCGIRequest::Request(headers, body) => {
@@ -210,16 +201,16 @@ impl SampleHandler {
                     match pair.1.parse() {
                         Ok(content_length) => {
                             if body.len() >= content_length {
-                                // Looks like we've gotten everything. Return the response now.
+                                // Looks like we've gotten everything. Send the response and exit.
                                 // (The is the common case)
-                                return Ok(AbortableItem::Stop(build_response(&headers, &body)));
+                                return Ok(Some(build_response(&headers, &body)));
                             } else {
                                 // Save current content, send empty/no-op response while we wait for
                                 // the remainder.
                                 self.headers = headers;
                                 self.body_remaining = content_length - body.len();
                                 self.body = body;
-                                return Ok(AbortableItem::Continue(Vec::new()));
+                                return Ok(None);
                             }
                         }
                         Err(e) => {
@@ -232,7 +223,7 @@ impl SampleHandler {
                     }
                 }
                 // No Content-Length was found. Assume we've got everything and avoid more reads.
-                Ok(AbortableItem::Stop(build_response(&headers, &body)))
+                Ok(Some(build_response(&headers, &body)))
             }
             // Handle additional body fragments. This should only happen if we had returned Continue
             // above. For basic requests, this additional handling shouldn't be necessary. See above
@@ -247,15 +238,11 @@ impl SampleHandler {
                 self.body.put(more_body);
 
                 if self.body_remaining <= 0 {
-                    // We've gotten all the remaining data. Send the response, and tell upstream to
-                    // not read from the socket again.
-                    Ok(AbortableItem::Stop(build_response(
-                        &self.headers,
-                        &self.body,
-                    )))
+                    // We've gotten all the remaining data. Send the response and exit.
+                    Ok(Some(build_response(&self.headers, &self.body)))
                 } else {
                     // More data remains, continue waiting for it and return (another) empty noop.
-                    Ok(AbortableItem::Continue(Vec::new()))
+                    Ok(None)
                 }
             }
         }
