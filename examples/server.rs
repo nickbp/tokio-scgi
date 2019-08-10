@@ -119,31 +119,40 @@ macro_rules! http_response {
 async fn serve<C>(conn: C) -> Result<(), Error>
 where C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::fmt::Debug {
     let mut handler = SampleHandler::new();
-    let (mut tx_scgi, rx_scgi) = Framed::new(conn, SCGICodec::new()).split();
-    match rx_scgi.into_future().await {
-        (None, _new_rx) => {
-            // SCGI request not ready: loop for more rx data
-            // TODO loop
-            tx_scgi.send(handle_error(
-                Error::new(ErrorKind::Other, "TODO partial requests aren't supported")
-            )).await
-        },
-        (Some(Err(e)), _new_rx) =>
-            // RX error: return error and abort
-            Err(Error::new(ErrorKind::Other, format!("Error when waiting for request: {}", e))),
-        (Some(Ok(request)), _) =>
-            // Got SCGI request: pass to handler
-            match handler.handle(request) {
-                Ok(Some(r)) =>
-                    // Response ready: send and exit
-                    tx_scgi.send(r).await,
-                Ok(None) =>
-                    // Response not ready: loop for more rx data
-                    Ok(()), // TODO loop
-                Err(e) =>
-                    // Handler error: respond with formatted error message
-                    tx_scgi.send(handle_error(e)).await,
+    let (mut tx_scgi, mut rx_scgi) = Framed::new(conn, SCGICodec::new()).split();
+
+    loop {
+        match rx_scgi.into_future().await {
+            (None, new_rx) => {
+                // SCGI request not ready: loop for more rx data
+                println!("Request read returned None, resuming read");
+                rx_scgi = new_rx;
             },
+            (Some(Err(e)), _new_rx) => {
+                // RX error: return error and abort
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    format!("Error when waiting for request: {}", e),
+                ));
+            },
+            (Some(Ok(request)), new_rx) =>
+                // Got SCGI request: pass to handler
+                match handler.handle(request) {
+                    Ok(Some(r)) => {
+                        // Response ready: send and exit
+                        return tx_scgi.send(r).await;
+                    },
+                    Ok(None) => {
+                        // Response not ready: loop for more rx data
+                        println!("Request data is incomplete, resuming read");
+                        rx_scgi = new_rx;
+                    },
+                    Err(e) => {
+                        // Handler error: respond with formatted error message
+                        return tx_scgi.send(handle_error(e)).await;
+                    }
+                },
+        }
     }
 }
 
