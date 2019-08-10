@@ -40,8 +40,12 @@ async fn main() -> Result<(), std::io::Error> {
             let (conn, _addr) = bind.accept().await?;
             tokio::spawn(async move {
                 match serve(conn).await {
-                    Err(e) =>{ println!("Error serving UDS session: {:?}", e); }
-                    Ok(()) => { println!("Served UDS request"); }
+                    Err(e) => {
+                        println!("Error serving UDS session: {:?}", e);
+                    }
+                    Ok(()) => {
+                        println!("Served UDS request");
+                    }
                 };
             });
         }
@@ -52,8 +56,12 @@ async fn main() -> Result<(), std::io::Error> {
             let (conn, addr) = bind.accept().await?;
             tokio::spawn(async move {
                 match serve(conn).await {
-                    Err(e) => { println!("Error when serving TCP session from {:?}: {:?}", addr, e); }
-                    Ok(()) => { println!("Served TCP request from {:?}", addr); }
+                    Err(e) => {
+                        println!("Error when serving TCP session from {:?}: {:?}", addr, e);
+                    }
+                    Ok(()) => {
+                        println!("Served TCP request from {:?}", addr);
+                    }
                 };
             });
         }
@@ -117,7 +125,9 @@ macro_rules! http_response {
 }
 
 async fn serve<C>(conn: C) -> Result<(), Error>
-where C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::fmt::Debug {
+where
+    C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::fmt::Debug,
+{
     let mut handler = SampleHandler::new();
     let (mut tx_scgi, mut rx_scgi) = Framed::new(conn, SCGICodec::new()).split();
 
@@ -127,31 +137,32 @@ where C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::
                 // SCGI request not ready: loop for more rx data
                 println!("Request read returned None, resuming read");
                 rx_scgi = new_rx;
-            },
+            }
             (Some(Err(e)), _new_rx) => {
                 // RX error: return error and abort
                 return Err(Error::new(
                     ErrorKind::Other,
                     format!("Error when waiting for request: {}", e),
                 ));
-            },
-            (Some(Ok(request)), new_rx) =>
+            }
+            (Some(Ok(request)), new_rx) => {
                 // Got SCGI request: pass to handler
                 match handler.handle(request) {
                     Ok(Some(r)) => {
                         // Response ready: send and exit
                         return tx_scgi.send(r).await;
-                    },
+                    }
                     Ok(None) => {
                         // Response not ready: loop for more rx data
                         println!("Request data is incomplete, resuming read");
                         rx_scgi = new_rx;
-                    },
+                    }
                     Err(e) => {
                         // Handler error: respond with formatted error message
                         return tx_scgi.send(handle_error(e)).await;
                     }
-                },
+                }
+            }
         }
     }
 }
@@ -281,7 +292,7 @@ fn build_response(headers: &Vec<(String, String)>, body: &BytesMut) -> Vec<u8> {
         // Printable content with minimal effort at avoiding HTML injection:
         Ok(s) => format!("{}", s.replace('<', "&lt;").replace('>', "&gt;")),
         // Not printable content, fall back to printing as list of dec codes:
-        Err(_e) => format!("{:?}", body.to_vec())
+        Err(_e) => format!("{:?}", body.to_vec()),
     };
     let content = format!(
         "<html><head><title>scgi-sample-server</title></head><body>

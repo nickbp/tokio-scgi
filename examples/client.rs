@@ -50,7 +50,9 @@ async fn main() -> Result<(), Error> {
 
 /// Runs the client: Sends a request and prints the responses via the provided UDS or TCP connection.
 async fn run_client<C>(conn: &mut C) -> Result<(), Error>
-where C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::fmt::Debug {
+where
+    C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::fmt::Debug,
+{
     let (mut tx_scgi, mut rx_scgi) = Framed::new(conn, SCGICodec::new()).split();
 
     // Send request
@@ -64,14 +66,14 @@ where C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::
                 // Shouldn't happen for response data, but this is how it would work...
                 println!("Response data is incomplete, resuming read");
                 rx_scgi = new_rx;
-            },
+            }
             (Some(Err(e)), _new_rx) => {
                 // RX error: return error and abort
                 return Err(Error::new(
                     ErrorKind::Other,
                     format!("Error when waiting for response: {}", e),
                 ));
-            },
+            }
             (Some(Ok(response)), new_rx) => {
                 // Got SCGI response: if empty, treat as end of response.
                 if response.len() == 0 {
@@ -81,9 +83,14 @@ where C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::
                 rx_scgi = new_rx;
                 match String::from_utf8(response.to_vec()) {
                     Ok(s) => println!("Got {} bytes:\n{}", response.len(), s),
-                    Err(e) => println!("{} byte response is not UTF8 ({}):\n{:?}", response.len(), e, response)
+                    Err(e) => println!(
+                        "{} byte response is not UTF8 ({}):\n{:?}",
+                        response.len(),
+                        e,
+                        response
+                    ),
                 }
-            },
+            }
         }
     }
 }

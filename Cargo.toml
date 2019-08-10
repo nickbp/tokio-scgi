@@ -1,6 +1,6 @@
 [package]
 name = "tokio-scgi"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Nick Parker <nick@nickbp.com>"]
 license = "MIT"
 edition = "2018"
@@ -9,9 +9,9 @@ description = "Tokio codec for building and parsing SCGI requests"
 repository = "https://github.com/nickbp/tokio-scgi"
 
 [dependencies]
+bytes = "0.4.12"
 tokio = "=0.2.0-alpha.1"
 tokio-codec = "=0.2.0-alpha.1"
-bytes = "0.4.12"
 
 [dev-dependencies]
 proptest = "0.9.4"
