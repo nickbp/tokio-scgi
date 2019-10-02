@@ -1,5 +1,4 @@
 #![deny(warnings, rust_2018_idioms)]
-#![feature(async_await)]
 
 use bytes::{BufMut, BytesMut};
 use std::env;
@@ -51,7 +50,7 @@ async fn main() -> Result<(), std::io::Error> {
         }
     } else {
         // Probably a TCP endpoint, try to resolve it in case it's a hostname
-        let mut bind = tcp_init(endpoint)?;
+        let mut bind = tcp_init(endpoint).await?;
         loop {
             let (conn, addr) = bind.accept().await?;
             tokio::spawn(async move {
@@ -98,14 +97,14 @@ fn unix_init(path_str: String) -> Result<UnixListener, Error> {
     Ok(socket)
 }
 
-fn tcp_init(endpoint_str: String) -> Result<TcpListener, Error> {
+async fn tcp_init(endpoint_str: String) -> Result<TcpListener, Error> {
     let addr = endpoint_str
         .to_socket_addrs()
         .expect(format!("Invalid TCP endpoint '{}'", endpoint_str).as_str())
         .next()
         .unwrap();
 
-    let socket = TcpListener::bind(&addr)?;
+    let socket = TcpListener::bind(&addr).await?;
     println!("Listening on {}", addr);
 
     Ok(socket)

@@ -10,8 +10,8 @@ repository = "https://github.com/nickbp/tokio-scgi"
 
 [dependencies]
 bytes = "0.4.12"
-tokio = "=0.2.0-alpha.1"
-tokio-codec = "=0.2.0-alpha.1"
+tokio = "=0.2.0-alpha.6"
+tokio-codec = "=0.2.0-alpha.6"
 
 [dev-dependencies]
 proptest = "0.9.4"
