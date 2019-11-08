@@ -4,4 +4,4 @@ This is a Rust library which implements support for building [SCGI](https://pyth
 
 SCGI is a [simple and efficient](http://python.ca/scgi/protocol.txt) protocol for communicating between frontend web servers and backend applications over a TCP or local Unix socket. It compares (favorably) to [FastCGI](https://en.wikipedia.org/wiki/FastCGI), another protocol with a similar purpose. This library provides support for writing both SCGI servers and clients in Rust, with support for both TCP and Unix sockets.
 
-For usage information and examples, see [https://github.com/nickbp/tokio-scgi](the project README and repo).
+For usage information and working client/server examples, see [https://github.com/nickbp/tokio-scgi](the project README and repo).

@@ -4,9 +4,14 @@ version = "0.2.0"
 authors = ["Nick Parker <nick@nickbp.com>"]
 license = "MIT"
 edition = "2018"
+# Anything packaged with the crate is locked in amber EXCEPT for things like images,
+# which just link back into the GitHub repo instead of the local copy!
+# Just avoid that mess and just use a stub README for crate releases that links to the repo.
 readme = "README-CRATES.md"
 description = "Tokio codec for building and parsing SCGI requests"
 repository = "https://github.com/nickbp/tokio-scgi"
+# Per above, leave out the artifacts relating to the main README.
+exclude = ["README.md", "images/"]
 
 [dependencies]
 bytes = "0.4.12"
