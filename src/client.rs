@@ -6,27 +6,35 @@ use tokio_codec::{Decoder, Encoder};
 
 const NUL: u8 = b'\0';
 
+/// A parsed SCGI request header with key/value header data, and/or bytes from the raw request body.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SCGIRequest {
-    /// The Vec contains the headers. The BytesMut optionally contains raw byte data to include in
-    /// the request body.
+    /// The Vec contains the headers. The BytesMut optionally contains raw byte data from
+    /// the request body, which may be followed by additional `BodyFragment`s in later calls.
+    /// The `Content-Length` header, required by SCGI, can be used to detect whether to wait for
+    /// additional `BodyFragment`s.
     Request(Vec<(String, String)>, BytesMut),
 
-    /// Additional body fragment(s) to be used for streaming request data.
+    /// Additional body fragment(s), used for streaming fragmented request body data. These should
+    /// only be relevant in cases where the leading `Request` value doesn't contain all of the body.
     BodyFragment(BytesMut),
 }
 
-/// A `Codec` implementation that creates and parses SCGI requests.
+/// A `Codec` implementation that creates SCGI requests for SCGI clients like web servers.
+/// The Encoder accepts `SCGIRequest` objects containing header/body request data and encodes them for
+/// sending to an SCGI server. The Decoder passes through the raw response returned by the SCGI server.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SCGICodec {}
 
 impl SCGICodec {
-    /// Returns a `SCGIClientCodec` for creating SCGI-format requests.
+    /// Returns a client `SCGICodec` for creating SCGI-format requests for use by SCGI clients
+    /// like web servers.
     pub fn new() -> SCGICodec {
         SCGICodec {}
     }
 }
 
+/// Passes through any response data as-is. To be handled by the requesting client.
 impl Decoder for SCGICodec {
     type Item = BytesMut;
     type Error = io::Error;

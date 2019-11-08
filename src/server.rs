@@ -12,16 +12,21 @@ const MAX_HEADER_STRING_BYTES: usize = 32 * 1024;
 /// is enforced by most web servers.
 const MAX_HEADER_BYTES: usize = 256 * 1024;
 
+/// A parsed SCGI request header with key/value header data, and/or bytes from the raw request body.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SCGIRequest {
-    /// The first Vec contains the headers. The second Vec optionally contains raw byte data from
-    /// the request body.
+    /// The Vec contains the headers. The BytesMut optionally contains raw byte data from
+    /// the request body, which may be followed by additional `BodyFragment`s in later calls.
+    /// The `Content-Length` header, required by SCGI, can be used to detect whether to wait for
+    /// additional `BodyFragment`s.
     Request(Vec<(String, String)>, BytesMut),
 
-    /// Additional body fragment(s) to be used for streaming request data.
+    /// Additional body fragment(s), used for streaming fragmented request body data. These should
+    /// only be relevant in cases where the leading `Request` value doesn't contain all of the body.
     BodyFragment(BytesMut),
 }
 
+/// Internal state while parsing the SCGI request
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum CodecState {
     /// Getting the initial netstring size.
@@ -46,7 +51,10 @@ enum CodecState {
     Content,
 }
 
-/// A `Codec` implementation that creates and parses SCGI requests.
+/// A `Codec` implementation that parses SCGI requests for SCGI servers like backend services.
+/// The Decoder parses and returns `SCGIRequest` objects containing header/body request data from an
+/// SCGI client such as a frontend web server. The Encoder passes through the raw response to be sent
+/// back to the SCGI client.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SCGICodec {
     /// Decoder state. See `CodecState` for transition info.
@@ -69,12 +77,14 @@ pub struct SCGICodec {
     next_search_index: usize,
 }
 
+/// Macro for simplifying creation of io::Errors
 macro_rules! io_err {
     ($($arg:tt)*) => (Err(io::Error::new(io::ErrorKind::InvalidData, format!($($arg)+))))
 }
 
 impl SCGICodec {
-    /// Returns a `SCGIServerCodec` for accepting and parsing SCGI-format requests.
+    /// Returns a client `SCGICodec` for accepting and parsing SCGI-format requests by SCGI servers
+    /// like backend services.
     pub fn new() -> SCGICodec {
         SCGICodec {
             decoder_state: CodecState::HeaderSize,
