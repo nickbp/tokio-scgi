@@ -14,7 +14,7 @@ repository = "https://github.com/nickbp/tokio-scgi"
 exclude = ["README.md", "images/"]
 
 [dependencies]
-bytes = "0.4.12"
+bytes = "0.5.1"
 tokio = "=0.2.0-alpha.6"
 tokio-codec = "=0.2.0-alpha.6"
 
