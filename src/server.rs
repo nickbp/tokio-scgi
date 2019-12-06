@@ -2,7 +2,7 @@
 
 use bytes::{BufMut, BytesMut};
 use std::{io, mem};
-use tokio_codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder};
 
 const NUL: u8 = b'\0';
 /// The maximum size in bytes of a single header name or value. This limit is far greater than the

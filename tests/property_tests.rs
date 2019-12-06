@@ -2,7 +2,7 @@
 
 use bytes::{BufMut, BytesMut};
 use proptest::prelude::*;
-use tokio_codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder};
 
 use tokio_scgi::client::{SCGICodec as ClientCodec, SCGIRequest as ClientRequest};
 use tokio_scgi::server::{SCGICodec as ServerCodec, SCGIRequest as ServerRequest};

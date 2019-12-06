@@ -7,8 +7,8 @@ use std::net::ToSocketAddrs;
 use std::path::Path;
 use tokio::net::{TcpStream, UnixStream};
 use tokio::prelude::*;
-use tokio_codec::Framed;
 use tokio_scgi::client::{SCGICodec, SCGIRequest};
+use tokio_util::codec::Framed;
 
 fn syntax() -> Error {
     println!(

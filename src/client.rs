@@ -2,7 +2,7 @@
 
 use bytes::{BufMut, BytesMut};
 use std::io;
-use tokio_codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder};
 
 const NUL: u8 = b'\0';
 

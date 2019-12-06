@@ -10,8 +10,8 @@ use std::time::SystemTime;
 use tokio;
 use tokio::net::{TcpListener, UnixListener};
 use tokio::prelude::*;
-use tokio_codec::Framed;
 use tokio_scgi::server::{SCGICodec, SCGIRequest};
+use tokio_util::codec::Framed;
 
 fn syntax() -> Error {
     println!(
