@@ -7,4 +7,10 @@ steps:
 - name: build-latest
   image: rust:latest
   commands:
-  - cargo test
+  - cargo build --verbose --all
+  - cargo test --verbose --all
+
+trigger:
+  event:
+    include:
+    - push
