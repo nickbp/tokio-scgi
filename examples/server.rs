@@ -1,6 +1,7 @@
 #![deny(warnings, rust_2018_idioms)]
 
 use bytes::{BufMut, BytesMut};
+use futures::{SinkExt, StreamExt};
 use std::env;
 use std::fs;
 use std::io::{Error, ErrorKind};
@@ -10,8 +11,9 @@ use std::time::SystemTime;
 use tokio;
 use tokio::net::{TcpListener, UnixListener};
 use tokio::prelude::*;
-use tokio_codec::Framed;
+use tokio::task;
 use tokio_scgi::server::{SCGICodec, SCGIRequest};
+use tokio_util::codec::Framed;
 
 fn syntax() -> Error {
     println!(
@@ -37,7 +39,7 @@ async fn main() -> Result<(), std::io::Error> {
         let mut bind = unix_init(endpoint)?;
         loop {
             let (conn, _addr) = bind.accept().await?;
-            tokio::spawn(async move {
+            task::spawn(async move {
                 match serve(conn).await {
                     Err(e) => {
                         println!("Error serving UDS session: {:?}", e);
@@ -53,7 +55,7 @@ async fn main() -> Result<(), std::io::Error> {
         let mut bind = tcp_init(endpoint).await?;
         loop {
             let (conn, addr) = bind.accept().await?;
-            tokio::spawn(async move {
+            task::spawn(async move {
                 match serve(conn).await {
                     Err(e) => {
                         println!("Error when serving TCP session from {:?}: {:?}", addr, e);
@@ -128,37 +130,35 @@ where
     C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::fmt::Debug,
 {
     let mut handler = SampleHandler::new();
-    let (mut tx_scgi, mut rx_scgi) = Framed::new(conn, SCGICodec::new()).split();
+    let mut framed = Framed::new(conn, SCGICodec::new());
 
     loop {
-        match rx_scgi.into_future().await {
-            (None, new_rx) => {
+        match framed.next().await {
+            None => {
                 // SCGI request not ready: loop for more rx data
                 println!("Request read returned None, resuming read");
-                rx_scgi = new_rx;
             }
-            (Some(Err(e)), _new_rx) => {
+            Some(Err(e)) => {
                 // RX error: return error and abort
                 return Err(Error::new(
                     ErrorKind::Other,
                     format!("Error when waiting for request: {}", e),
                 ));
             }
-            (Some(Ok(request)), new_rx) => {
+            Some(Ok(request)) => {
                 // Got SCGI request: pass to handler
                 match handler.handle(request) {
                     Ok(Some(r)) => {
                         // Response ready: send and exit
-                        return tx_scgi.send(r).await;
+                        return framed.send(r).await;
                     }
                     Ok(None) => {
                         // Response not ready: loop for more rx data
                         println!("Request data is incomplete, resuming read");
-                        rx_scgi = new_rx;
                     }
                     Err(e) => {
                         // Handler error: respond with formatted error message
-                        return tx_scgi.send(handle_error(e)).await;
+                        return framed.send(handle_error(e)).await;
                     }
                 }
             }

@@ -2,7 +2,7 @@
 
 use bytes::{BufMut, BytesMut};
 use std::{io, mem};
-use tokio_codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder};
 
 const NUL: u8 = b'\0';
 /// The maximum size in bytes of a single header name or value. This limit is far greater than the
@@ -276,7 +276,7 @@ impl Encoder for SCGICodec {
     fn encode(&mut self, data: Vec<u8>, buf: &mut BytesMut) -> Result<(), io::Error> {
         // Forward content (HTTP response, typically?) as-is
         buf.reserve(data.len());
-        buf.put(data);
+        buf.put_slice(data.as_slice());
         Ok(())
     }
 }

@@ -1,14 +1,15 @@
 #![deny(warnings, rust_2018_idioms)]
 
 use bytes::{BufMut, BytesMut};
+use futures::{SinkExt, StreamExt};
 use std::env;
 use std::io::{Error, ErrorKind};
 use std::net::ToSocketAddrs;
 use std::path::Path;
 use tokio::net::{TcpStream, UnixStream};
 use tokio::prelude::*;
-use tokio_codec::Framed;
 use tokio_scgi::client::{SCGICodec, SCGIRequest};
+use tokio_util::codec::Framed;
 
 fn syntax() -> Error {
     println!(
@@ -52,34 +53,32 @@ async fn run_client<C>(conn: &mut C) -> Result<(), Error>
 where
     C: AsyncRead + AsyncWrite + std::marker::Send + std::marker::Unpin + std::fmt::Debug,
 {
-    let (mut tx_scgi, mut rx_scgi) = Framed::new(conn, SCGICodec::new()).split();
+    let mut framed = Framed::new(conn, SCGICodec::new());
 
     // Send request
-    tx_scgi.send(build_request()).await?;
+    framed.send(build_request()).await?;
 
     // Consume response(s): loop until error or empty data returned
     loop {
-        match rx_scgi.into_future().await {
-            (None, new_rx) => {
+        match framed.next().await {
+            None => {
                 // SCGI response not ready: loop for more rx data
                 // Shouldn't happen for response data, but this is how it would work...
                 println!("Response data is incomplete, resuming read");
-                rx_scgi = new_rx;
             }
-            (Some(Err(e)), _new_rx) => {
+            Some(Err(e)) => {
                 // RX error: return error and abort
                 return Err(Error::new(
                     ErrorKind::Other,
                     format!("Error when waiting for response: {}", e),
                 ));
             }
-            (Some(Ok(response)), new_rx) => {
+            Some(Ok(response)) => {
                 // Got SCGI response: if empty, treat as end of response.
                 if response.len() == 0 {
                     return Ok(());
                 }
                 // Otherwise 'handle' by printing content, then resume read for more
-                rx_scgi = new_rx;
                 match String::from_utf8(response.to_vec()) {
                     Ok(s) => println!("Got {} bytes:\n{}", response.len(), s),
                     Err(e) => println!(
@@ -97,7 +96,7 @@ where
 fn build_request() -> SCGIRequest {
     let content_str = b"{\"description\": \"my name is also bort <><><>\"}";
     let mut content = BytesMut::with_capacity(content_str.len());
-    content.put(content_str.to_vec());
+    content.put_slice(content_str);
 
     let mut headers = Vec::new();
     headers.push(("Content-Length".to_string(), content_str.len().to_string()));
