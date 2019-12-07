@@ -276,7 +276,7 @@ impl Encoder for SCGICodec {
     fn encode(&mut self, data: Vec<u8>, buf: &mut BytesMut) -> Result<(), io::Error> {
         // Forward content (HTTP response, typically?) as-is
         buf.reserve(data.len());
-        buf.put(data);
+        buf.put_slice(data.as_slice());
         Ok(())
     }
 }

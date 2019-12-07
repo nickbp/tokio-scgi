@@ -81,15 +81,15 @@ impl Encoder for SCGICodec {
                 );
 
                 // Insert the header content into the reserved buffer.
-                buf.put(netstring_size_str);
-                buf.put(b':');
+                buf.put_slice(netstring_size_str.as_bytes());
+                buf.put_u8(b':');
                 for (k, v) in &env_map {
-                    buf.put(k);
-                    buf.put(NUL);
-                    buf.put(v);
-                    buf.put(NUL);
+                    buf.put(k.as_bytes());
+                    buf.put_u8(NUL);
+                    buf.put(v.as_bytes());
+                    buf.put_u8(NUL);
                 }
-                buf.put(b',');
+                buf.put_u8(b',');
 
                 // Add any body content after the header
                 buf.put(body);

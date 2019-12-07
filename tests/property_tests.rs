@@ -13,7 +13,7 @@ fn decode_encode_protocol_sample() {
     let protocol_sample = b"70:CONTENT_LENGTH\027\0SCGI\01\0REQUEST_METHOD\0POST\0REQUEST_URI\0/deepthought\0,What is the answer to life?";
 
     let mut buf = BytesMut::with_capacity(protocol_sample.len());
-    buf.put(protocol_sample.to_vec());
+    buf.put_slice(protocol_sample);
 
     let mut decoder = ServerCodec::new();
 
@@ -26,7 +26,7 @@ fn decode_encode_protocol_sample() {
     let expected_body_str = b"What is the answer to life?";
     let mut expected_body = BytesMut::new();
     expected_body.reserve(expected_body_str.len());
-    expected_body.put(expected_body_str.to_vec());
+    expected_body.put_slice(expected_body_str);
     assert_eq!(
         ServerRequest::Request(expected_headers.clone(), expected_body.clone()),
         decoder.decode(&mut buf).unwrap().unwrap()
@@ -241,7 +241,7 @@ fn check_content_slow(
     // Add each char individually, trying to decode each time:
     let mut decoder = ServerCodec::new();
     for chr in &data {
-        buf.put(chr);
+        buf.put_u8(*chr);
         match decoder.decode(&mut buf) {
             Ok(Some(ServerRequest::Request(headers, body))) => {
                 assert!(
