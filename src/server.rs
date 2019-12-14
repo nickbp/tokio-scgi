@@ -1,6 +1,6 @@
 #![deny(warnings, rust_2018_idioms)]
 
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use std::{io, mem};
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -107,7 +107,7 @@ impl SCGICodec {
                         return Ok(None);
                     } else if buf[0] == b',' {
                         // Cut the ',' from the buffer, return headers and switch to content mode
-                        buf.split_to(1);
+                        buf.advance(1);
                         self.next_search_index = 0;
                         self.decoder_state = CodecState::Content;
                         return Ok(Some(SCGIRequest::Request(
