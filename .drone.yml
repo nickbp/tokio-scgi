@@ -7,8 +7,8 @@ steps:
 - name: build-latest
   image: rust:latest
   commands:
-  - cargo build --verbose --all
-  - cargo test --verbose --all
+  - cargo build --all-targets
+  - cargo test
 
 trigger:
   event:
