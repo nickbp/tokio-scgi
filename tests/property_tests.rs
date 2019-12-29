@@ -103,9 +103,17 @@ fn encode_decode_empty_body() {
 
 proptest! {
     #[test]
-    fn decode_doesnt_crash(s in ".*") {
-        let mut buf = BytesMut::with_capacity(s.len());
-        ServerCodec::new().decode(&mut buf)?;
+    fn server_decode_doesnt_crash(s in ".*") {
+        let mut buf = BytesMut::from(s.as_bytes());
+        // ignore any io errors, they're expected
+        let _ = ServerCodec::new().decode(&mut buf);
+    }
+
+    #[test]
+    fn client_decode_doesnt_crash(s in ".*") {
+        let mut buf = BytesMut::from(s.as_bytes());
+        // ignore any io errors, they're expected
+        let _ = ClientCodec::new().decode(&mut buf)?;
     }
 
     #[test]
