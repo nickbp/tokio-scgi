@@ -1,3 +1,7 @@
+# We are a library, so ignore Cargo.lock
+# See also: https://doc.rust-lang.org/cargo/faq.html#why-do-binaries-have-cargolock-in-version-control-but-not-libraries
+/Cargo.lock
+
 .idea
 *.iml
 /target
