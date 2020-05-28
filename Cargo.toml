@@ -20,4 +20,4 @@ tokio = { version = "0.2", features = ["io-util", "macros", "rt-core", "tcp", "u
 tokio-util = { version = "0.2", features = ["codec"] }
 
 [dev-dependencies]
-proptest = "0.9"
+proptest = "0.10"
