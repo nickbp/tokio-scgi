@@ -1,4 +1,4 @@
-#![deny(warnings, rust_2018_idioms)]
+#![deny(warnings)]
 
 use bytes::{BufMut, BytesMut};
 use std::io;
@@ -47,8 +47,7 @@ impl Decoder for SCGICodec {
 
 /// Creates and produces SCGI requests. Invoke once with `Request`, followed by zero or more calls
 /// with `BodyFragment`.
-impl Encoder for SCGICodec {
-    type Item = SCGIRequest;
+impl Encoder<SCGIRequest> for SCGICodec {
     type Error = io::Error;
 
     fn encode(&mut self, data: SCGIRequest, buf: &mut BytesMut) -> Result<(), io::Error> {

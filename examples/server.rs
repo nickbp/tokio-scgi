@@ -1,4 +1,4 @@
-#![deny(warnings, rust_2018_idioms)]
+#![deny(warnings)]
 
 use bytes::{BufMut, BytesMut};
 use futures::{SinkExt, StreamExt};
@@ -36,7 +36,7 @@ async fn main() -> Result<(), std::io::Error> {
 
     if endpoint.contains('/') {
         // Probably a path to a file, assume the argument is a unix socket
-        let mut bind = unix_init(endpoint)?;
+        let bind = unix_init(endpoint)?;
         loop {
             let (conn, _addr) = bind.accept().await?;
             task::spawn(async move {
@@ -52,7 +52,7 @@ async fn main() -> Result<(), std::io::Error> {
         }
     } else {
         // Probably a TCP endpoint, try to resolve it in case it's a hostname
-        let mut bind = tcp_init(endpoint).await?;
+        let bind = tcp_init(endpoint).await?;
         loop {
             let (conn, addr) = bind.accept().await?;
             task::spawn(async move {

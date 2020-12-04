@@ -1,4 +1,4 @@
-#![deny(warnings, rust_2018_idioms)]
+#![deny(warnings)]
 
 //! SCGI request codec for Tokio.
 //!

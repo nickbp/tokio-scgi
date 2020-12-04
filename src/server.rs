@@ -1,4 +1,4 @@
-#![deny(warnings, rust_2018_idioms)]
+#![deny(warnings)]
 
 use bytes::{Buf, BufMut, BytesMut};
 use std::{io, mem};
@@ -269,8 +269,7 @@ fn consume_header_string(bytes_with_nul: BytesMut) -> Result<String, io::Error> 
 }
 
 /// Forwards a raw response to an SCGI request back to the client.
-impl Encoder for SCGICodec {
-    type Item = Vec<u8>;
+impl Encoder<Vec<u8>> for SCGICodec {
     type Error = io::Error;
 
     fn encode(&mut self, data: Vec<u8>, buf: &mut BytesMut) -> Result<(), io::Error> {

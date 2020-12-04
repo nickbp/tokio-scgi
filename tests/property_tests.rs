@@ -1,4 +1,4 @@
-#![deny(warnings, rust_2018_idioms)]
+#![deny(warnings)]
 
 use bytes::{BufMut, BytesMut};
 use proptest::prelude::*;
