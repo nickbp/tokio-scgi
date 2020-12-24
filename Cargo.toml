@@ -17,7 +17,7 @@ exclude = ["README.md", "images/"]
 bytes = "0.6"
 futures = "0.3"
 tokio = { version = "0.3", features = ["io-util", "macros", "net", "rt-multi-thread"] }
-tokio-util = { version = "0.5", features = ["codec"] }
+tokio-util = { version = "0.6", features = ["codec"] }
 
 [dev-dependencies]
 proptest = "0.10"
