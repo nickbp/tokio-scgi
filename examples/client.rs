@@ -6,8 +6,8 @@ use std::env;
 use std::io::{Error, ErrorKind};
 use std::net::ToSocketAddrs;
 use std::path::Path;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpStream, UnixStream};
-use tokio::prelude::*;
 use tokio_scgi::client::{SCGICodec, SCGIRequest};
 use tokio_util::codec::Framed;
 
