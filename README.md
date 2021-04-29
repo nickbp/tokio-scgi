@@ -1,3 +1,7 @@
+# [THIS PROJECT HAS MOVED TO SOURCEHUT!](https://sr.ht/~nickbp/tokio-scgi/)
+
+I'm consolidating my personal projects in one place. As such the old GitHub repo is being archived, and work now continues on sourcehut.
+
 # tokio_scgi
 
 This is a Rust library which implements support for building [SCGI](https://python.ca/scgi/) servers and clients. It comes in the form of a Tokio Codec which can be used in asynchronous code, but it can also be invoked directly in synchronous or non-Tokio code.
